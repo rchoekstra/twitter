@@ -1,0 +1,227 @@
+---
+title: "Twitter"
+author: "René Hoekstra"
+date: "26 oktober 2017"
+output: 
+  html_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+setwd("//SRV2/twitter/R/syntax")
+#options(encoding = "UTF-8")
+
+knitr::opts_chunk$set(echo = FALSE)
+library(RMySQL)
+library(topicmodels)
+library(stringr)
+library(lubridate)
+library(ggplot2)
+library(knitr)
+library(dplyr)
+library(tm)
+library(tibble)
+library(wordcloud)
+library(RColorBrewer)
+library(tidytext)
+library(jsonlite)
+
+library(doParallel)
+registerDoParallel(cores=6)
+getDoParWorkers()
+
+unwanted_array = list('S'='S', 's'='s', 'Z'='Z', 'z'='z', 'À'='A', 'Á'='A', 'Â'='A', 'Ã'='A', 'Ä'='A', 'Å'='A', 'Æ'='A', 'Ç'='C', 'È'='E', 'É'='E',
+                      'Ê'='E', 'Ë'='E', 'Ì'='I', 'Í'='I', 'Î'='I', 'Ï'='I', 'Ñ'='N', 'Ò'='O', 'Ó'='O', 'Ô'='O', 'Õ'='O', 'Ö'='O', 'Ø'='O', 'Ù'='U',
+                      'Ú'='U', 'Û'='U', 'Ü'='U', 'Ý'='Y', 'Þ'='B', 'ß'='Ss', 'à'='a', 'á'='a', 'â'='a', 'ã'='a', 'ä'='a', 'å'='a', 'æ'='a', 'ç'='c',
+                      'è'='e', 'é'='e', 'ê'='e', 'ë'='e', 'ì'='i', 'í'='i', 'î'='i', 'ï'='i', 'ð'='o', 'ñ'='n', 'ò'='o', 'ó'='o', 'ô'='o', 'õ'='o',
+                      'ö'='o', 'ø'='o', 'ù'='u', 'ú'='u', 'û'='u', 'ý'='y', 'ý'='y', 'þ'='b', 'ÿ'='y' )
+
+stopwords <- data.frame(token=c(stopwords("dutch"),"het","bij","en","een","de"), stringsAsFactors=FALSE)
+
+pos <- read.csv(file='../input/positive_words_nl.txt', stringsAsFactors = FALSE, header=FALSE, col.names=c('token')) %>%
+  mutate(sentiment=1)
+neg <- read.csv(file='../input/negative_words_nl.txt', stringsAsFactors = FALSE, header=FALSE, col.names=c('token')) %>%
+  mutate(sentiment=-1)
+sentiment <- rbind(pos,neg)
+rm(list=c('pos','neg'))
+
+config <- fromJSON(readChar('../../config.json', file.info('../../config.json')$size))
+```
+
+```{r getting-data}
+mydb = dbConnect(MySQL(), user=config[['db']][['user']], password=config[['db']][['password']], dbname=config[['db']][['database']], host='srv2.lan')
+init_commands <- c('SET NAMES utf8mb4', 'SET CHARACTER SET utf8mb4', 'SET character_set_connection=utf8mb4')
+for (command in init_commands) { 
+  rs <- dbSendQuery(mydb, command)
+}
+
+rs = dbSendQuery(mydb, "SELECT t1.tweet_id_str, date(t1.created_at) as created_at, coalesce(t2.tweet_text,t1.tweet_text) as tweet_text,case when t2.tweet_id is null then 0 else 1 end as is_retweet, t1.user_screen_name from twitter t1 left join twitter t2 on (t1.retweet_id = t2.tweet_id) where t1.created_at >= '2017-11-01 00:00:00'")
+tweets = fetch(rs, n=-1)
+tweets$tweet_text <- iconv(tweets$tweet_text,from='UTF-8', sub="") #sub="byte"--> smiley with tears (U+1F602) = F0 9F 98 82
+rm(list=c("rs","mydb"))
+```
+
+``` {r data-preparation }
+# Dates
+if(class(tweets$created_at)=="character") 
+  tweets$created_at <- as.Date(tweets$created_at,'%Y-%m-%d')
+
+
+#tweets$tweet_text_cleaned <- gsub('[^[:alnum:]+?!&:"/// ]',"",tweets$tweet_text)
+
+# Replace special characters
+tweets$tweet_text_cleaned <- chartr(paste(names(unwanted_array), collapse=''),
+                                    paste(unwanted_array,collapse=''),
+                                    tweets$tweet_text)
+
+# Replacements
+tweets$tweet_text_cleaned <- gsub("zilveren kruis","zilverenkruis",tweets$tweet_text_cleaned, ignore.case = TRUE)
+tweets$tweet_text_cleaned <- gsub("@zilverenkruis","",tweets$tweet_text_cleaned,ignore.case = TRUE)
+tweets$tweet_text_cleaned <- gsub("zilverenkruis","",tweets$tweet_text_cleaned,ignore.case = TRUE)
+
+tweets %>%
+  select(tweet_text_cleaned)%>% 
+  mutate(tweet_text_cleaned =tolower(tweet_text_cleaned)) %>%
+  filter(str_detect(tweet_text_cleaned, 'zilveren kruis'))
+
+# Remove URLs
+#removeURL <- function(x) gsub("http[[:alnum:]]*", "", x)
+#tweets$tweet_text_cleaned <-  removeURL(tweets$tweet_text_cleaned)
+
+
+replace_reg <- "https://t.co/[A-Za-z\\d]+|http://[A-Za-z\\d]+|&amp;|&lt;|&gt;|RT|https"
+unnest_reg <- "([^A-Za-z_\\d#@']|'(?![A-Za-z_\\d#@]))"
+
+# Create tidy text (one-token-per-row)
+## Other columns are retained
+## Punctiation is stripped
+## Converts to lowercase
+tweets.tidy <- tweets %>%
+  select(tweet_id=tweet_id_str, tweet_text=tweet_text_cleaned) %>%
+  mutate(tweet_text = str_replace_all(tweet_text, replace_reg, "")) %>%
+  unnest_tokens(token, tweet_text, token="regex", pattern=unnest_reg) %>%
+  anti_join(stopwords)
+
+tweets.metadata <- tweets %>%
+  select(tweet_id=tweet_id_str,created_at, is_retweet)
+```
+
+
+## Tweets per dag
+```{r tweets-per-day}
+# Daily Tweet count
+tweets.tidy %>%
+  inner_join(tweets.metadata) %>%
+  group_by(created_at) %>%
+  summarise(n = n_distinct(tweet_id)) %>%
+  ggplot(aes(x=created_at, y=n)) +
+    geom_bar(stat="identity")+
+    xlab("Datum") +
+    ylab("Aantal tweets")
+```
+
+## Frequent terms
+```{r frequent/terms}
+# Frequent terms (top n)
+tweets.tidy %>%
+  inner_join(tweets.metadata) %>%
+  filter(is_retweet>=0,) %>%
+  count(token, sort=TRUE) %>%
+  top_n(10,n) %>%
+  ggplot(aes(x=reorder(token,n), y=n)) +
+    geom_bar(stat="identity") +
+    xlab("") + ylab("Frequentie") +
+    coord_flip()
+
+# Terms in most document
+tweets.tidy %>%
+  inner_join(tweets.metadata) %>%
+  filter(is_retweet>=0) %>%
+  group_by(token) %>%
+  summarize(n = n_distinct(tweet_id)) %>%
+  top_n(10,n) %>%
+  ggplot(aes(x=reorder(token,n), y=n)) +
+    geom_bar(stat="identity") +
+    coord_flip()
+
+# Wordcloud
+pal <- brewer.pal(9,'BuGn')[-(1:4)]
+tweets.tidy %>%
+  count(token) %>%
+  with(wordcloud(token,n,max.words=100), random.order=TRUE, colors=pal)
+```
+
+
+## TF-IDF
+```{r}
+tweets.tidy %>% 
+  inner_join(tweets.metadata) %>%
+  group_by(created_at, token) %>%
+  summarize(n=n()) %>%
+  bind_tf_idf(token,created_at,n) %>%
+  arrange(desc(tf_idf)) %>%
+  head(20) %>%
+  ggplot(aes(x=reorder(token,tf_idf), y=tf_idf)) +
+  geom_bar(stat="identity") +
+  labs(x=NULL, y="tf-idf") +
+  coord_flip()
+```
+
+## Topic modeling
+``` {r topic-modeling}
+tweets.dtm <- tweets.tidy %>%
+  mutate(token = gsub("[[:punct:]]", "", token)) %>% # [^[:alnum:]]  / [[:punct:]]
+  filter(token!="") %>%
+  inner_join(tweets.metadata) %>%
+  group_by(created_at, token) %>%
+  summarize(n=n()) %>%
+  cast_dtm(created_at, token, n)
+  
+lda <- LDA(tweets.dtm, k=12, control=list(seed=1234))
+
+topics.beta <- lda %>%
+  tidy(matrix="beta")
+
+topics.gamma <- lda %>%
+  tidy(matrix="gamma")
+
+topics.beta %>%
+  group_by(topic)%>%
+  top_n(10,beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>%
+  ggplot(aes(x=reorder(term,beta), y=beta, fill=factor(topic))) +
+    geom_bar(show.legend=FALSE, stat="identity") +
+    facet_wrap(~ topic, scales="free") + 
+    coord_flip()
+
+
+dtm <- dtm[rowTotals>0,]
+lda.model <- LDA(dtm, k=3)
+lda.model %>% 
+  tidy(matrix="beta") %>%
+  group_by(topic) %>%
+  top_n(7,beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>%
+  
+  mutate(term=reorder(term,beta)) %>%
+  ggplot(aes(term, beta, fill=factor(topic))) +
+    geom_bar(show.legend=FALSE) +
+    facet_wrap(~ topic, scales="free") +
+    coord_flip()
+```
+
+## Sentiment
+``` {r}
+tweets.tidy %>% 
+  inner_join(sentiment) %>%
+  group_by(tweet_id) %>%
+  summarize(sentimtent = sum(sentiment)) %>%
+  ggplot(aes(sentimtent)) +
+    geom_histogram()
+```
+
+
+
+

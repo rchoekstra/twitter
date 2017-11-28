@@ -1,0 +1,15 @@
+insert into twitter_conversations (tweet_id, conversation_id)
+
+select t1.tweet_id
+     , coalesce(t6.tweet_id, t5.tweet_id, t4.tweet_id, t3.tweet_id, t2.tweet_id, t1.tweet_id) as conversation_id
+  from twitter t1
+  left join twitter t2 on (coalesce(t1.in_reply_to_status_id, NULLIF(t1.quoted_status_id,0), t1.retweet_id) = t2.tweet_id)
+  left join twitter t3 on (coalesce(t2.in_reply_to_status_id, NULLIF(t2.quoted_status_id,0), t2.retweet_id) = t3.tweet_id)
+  left join twitter t4 on (coalesce(t3.in_reply_to_status_id, NULLIF(t3.quoted_status_id,0), t3.retweet_id) = t4.tweet_id)
+  left join twitter t5 on (coalesce(t4.in_reply_to_status_id, NULLIF(t4.quoted_status_id,0), t4.retweet_id) = t5.tweet_id)
+  left join twitter t6 on (coalesce(t5.in_reply_to_status_id, NULLIF(t5.quoted_status_id,0), t5.retweet_id) = t6.tweet_id)
+where t1.tweet_id in (select tweet_id from twitter where tweet_id not in (select tweet_id from twitter_conversations))
+
+on duplicate key update conversation_id = coalesce(t6.tweet_id, t5.tweet_id, t4.tweet_id, t3.tweet_id, t2.tweet_id, t1.tweet_id)
+
+coalesce(t1.in_reply_to_status_id, NULLIF(t1.quoted_status_id,0), t1.retweet_id)

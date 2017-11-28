@@ -1,0 +1,65 @@
+.page-header {
+    font-family: Arial;
+    font-size: 24pt;
+    font-weight: bold;
+    #border: 1px solid #bbbbbb;
+    height: 2.4em;
+    margin-bottom: 1em;
+    line-height: 1.2;
+}
+
+.column-header {
+    font-family: Arial;
+    font-size: 16pt;
+    font-weight: bold;
+    #border: 1px solid #bbbbbb;
+    height: 2.4em;
+    vertical-align: text-bottom; 
+    border-bottom: 1px solid black;
+    margin-bottom: 0.5em;
+    line-height: 1.2;
+}
+
+.column-content {
+    #border: 1px solid #bbbbbb;
+}
+
+.row {
+    #border: 1px solid black;
+}
+
+.footnotes {
+    font-size: 8pt;
+    height: 7em;
+}
+
+.page-number {
+    color: white;
+}
+
+.navbar.center .navbar-inner {
+    text-align: center;
+}
+
+.navbar.center .navbar-inner .nav {
+    display:inline-block;
+    float: none;
+}
+
+#page-corner {
+    background: url('page_corner.png');
+    #border: 1px solid black;
+    background-position: right;
+    background-repeat: no-repeat;
+    text-align: right; 
+    padding-top:3em; 
+    padding-left: 70px;
+    height: 105px; 
+    text-align: center;
+    color: white;
+}
+
+table  {
+    /*Fix foor google viz org chart*/
+    border-collapse: separate;
+}

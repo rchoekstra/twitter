@@ -1,0 +1,9 @@
+config.json
+backend/code/doxygen/
+backend/data/*
+*.pyc
+R/syntax/.Rhistory
+R/input/negative_words_nl.txt
+R/input/positive_words_nl.txt
+R/input/stop_dutch.txt
+
