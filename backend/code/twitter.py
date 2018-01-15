@@ -130,17 +130,17 @@ def downloadTweetsFromList(tweet_ids):
 # @param maxTweets: Maximum number of Tweets to download
 # @param tweetsPerQry: Tweets per query (max=100)
 # @return: Returns a list of tweepy.models.Status instances
-def downloadTweetsWithSearchQuery(searchQuery,maxTweets=10000000,tweetsPerQry=100):
+def downloadTweetsWithSearchQuery(searchQuery,maxTweets=10000000,tweetsPerQry=100, sinceId=None, max_id=-1L):
     # maxTweets    = Some arbitrary large number
     # tweetsPerQry = this is the max the API permitsimpor
     
     # If results from a specific ID onwards are reqd, set since_id to that ID.
     # else default to no lower limit, go as far back as API allows
-    sinceId = None
+    #sinceId = None
 
     # If results only below a specific ID are, set max_id to that ID.
     # else default to no upper limit, start from the most recent tweet matching the search query.
-    max_id = -1L
+    #max_id = -1L
     
     tweets = list()
     tweetCount = 0
